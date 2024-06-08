@@ -1,0 +1,145 @@
+#include <avr/sleep.h>
+#include <avr/power.h>
+
+// Definição dos pinos
+const int ledUVPin = 9; // Pino do LED UV
+const int sensorLDRPin = A0; // Pino do fotorresistor (LDR)
+const int sensorIRPin = A1; // Pino do sensor infravermelho (simulado com potenciômetro)
+const int ledOilPin = 10; // LED para indicação de óleo detectado
+const int ledPlasticPin = 11; // LED para indicação de plástico detectado
+const int interruptPin = 2; // Pino de interrupção para acordar o Arduino
+
+// Limiar de detecção de óleo (deve ser ajustado com base na calibração)
+int oilThreshold = 500; // Exemplo de valor, ajuste conforme necessário
+
+// Limiar de detecção de plásticos (deve ser ajustado com base na calibração)
+int plasticThreshold = 300; // Exemplo de valor, ajuste conforme necessário
+
+// Função para inicializar os pinos
+void setupPins() {
+  pinMode(ledUVPin, OUTPUT);
+  pinMode(ledOilPin, OUTPUT);
+  pinMode(ledPlasticPin, OUTPUT);
+  pinMode(interruptPin, INPUT_PULLUP); // Configura o pino de interrupção como entrada com pull-up
+}
+
+// Função para inicializar a comunicação serial
+void setupSerial() {
+  Serial.begin(115200);
+}
+
+// Função para calibrar os sensores
+void calibrateSensors() {
+  Serial.println("Calibrando sensores...");
+  
+  // Exemplo de calibração simples
+  int oilCalibrationValue = readSensorAverage(sensorLDRPin, 50);
+  int plasticCalibrationValue = readSensorAverage(sensorIRPin, 50);
+
+  oilThreshold = oilCalibrationValue + 100; // Ajuste o valor conforme necessário
+  plasticThreshold = plasticCalibrationValue + 50; // Ajuste o valor conforme necessário
+
+  Serial.print("Novo limiar de óleo: ");
+  Serial.println(oilThreshold);
+  Serial.print("Novo limiar de plástico: ");
+  Serial.println(plasticThreshold);
+
+  Serial.println("Calibração completa.");
+}
+
+// Função para ler a média dos valores dos sensores
+int readSensorAverage(int pin, int samples) {
+  long sum = 0;
+  for (int i = 0; i < samples; i++) {
+    sum += analogRead(pin);
+    delay(10); // Pequeno atraso entre leituras para estabilidade
+  }
+  return sum / samples;
+}
+
+// Função para detecção de óleo
+bool detectOil(int sensorValue) {
+  return sensorValue > oilThreshold;
+}
+
+// Função para detecção de plástico
+bool detectPlastic(int sensorValue) {
+  return sensorValue > plasticThreshold;
+}
+
+// Função para configurar a interrupção externa
+void setupInterrupt() {
+  attachInterrupt(digitalPinToInterrupt(interruptPin), wakeUp, LOW); // Configura a interrupção no pino 2
+}
+
+// Função de interrupção para acordar o Arduino
+void wakeUp() {
+  // Apenas uma função vazia para retornar do modo de sono
+}
+
+// Função para colocar o Arduino em modo de baixo consumo
+void enterSleepMode() {
+  set_sleep_mode(SLEEP_MODE_PWR_DOWN); // Define o modo de sono
+  sleep_enable(); // Habilita o sono
+  sleep_mode(); // Coloca o Arduino em sono
+
+  // O código continuará daqui após a interrupção que acorda o Arduino
+  sleep_disable(); // Desabilita o sono
+  power_all_enable(); // Reabilita todos os componentes
+}
+
+void setup() {
+  setupPins();
+  setupSerial();
+  calibrateSensors();
+  setupInterrupt();
+}
+
+void loop() {
+  // Liga o LED UV
+  digitalWrite(ledUVPin, HIGH);
+
+  // Aguarda um tempo para estabilizar a leitura
+  delay(100);
+
+  // Lê a média dos valores do fotorresistor e do sensor infravermelho
+  int sensorLDRValue = readSensorAverage(sensorLDRPin, 10);
+  int sensorIRValue = readSensorAverage(sensorIRPin, 10);
+
+  // Desliga o LED UV
+  digitalWrite(ledUVPin, LOW);
+
+  // Envia os valores dos sensores para o monitor serial
+  Serial.print("LDR Value: ");
+  Serial.println(sensorLDRValue);
+  Serial.print("IR Reflection Value: ");
+  Serial.println(sensorIRValue);
+
+  // Verifica e indica detecção de óleo
+  if (detectOil(sensorLDRValue)) {
+    Serial.println("Óleo detectado!");
+    digitalWrite(ledOilPin, HIGH);
+  } else {
+    Serial.println("Nenhum óleo detectado.");
+    digitalWrite(ledOilPin, LOW);
+  }
+
+  // Verifica e indica detecção de plástico
+  if (detectPlastic(sensorIRValue)) {
+    Serial.println("Plástico detectado!");
+    digitalWrite(ledPlasticPin, HIGH);
+  } else {
+    Serial.println("Nenhum plástico detectado.");
+    digitalWrite(ledPlasticPin, LOW);
+  }
+
+  // Envia os dados dos sensores via Serial
+  Serial.print("SENSOR_DATA,");
+  Serial.print(sensorLDRValue);
+  Serial.print(",");
+  Serial.println(sensorIRValue);
+
+  // Aguarda um pouco antes da próxima leitura e entra no modo de baixo consumo
+  delay(10000); // Aguarda 10 segundos
+  enterSleepMode(); // Entra no modo de baixo consumo até ser acordado pela interrupção
+}
